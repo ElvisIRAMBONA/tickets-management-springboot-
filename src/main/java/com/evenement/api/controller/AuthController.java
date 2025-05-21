@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
@@ -43,7 +44,9 @@ public class AuthController {
 
         APP_USER user = new APP_USER();
         user.setUsername(request.getUsername());
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        String hashedPassword = passwordEncoder.encode(request.getPassword());
+        System.out.println("Mot de passe haché: " + hashedPassword);
+        user.setPassword(hashedPassword);
         APP_USER savedUser = userRepository.save(user);
         System.out.println("Utilisateur enregistré: " + savedUser.getUsername());
 
@@ -57,14 +60,22 @@ public class AuthController {
      */
     @PostMapping("/login")
     public ResponseEntity<String> login(@RequestBody LoginRequest request) {
-        Authentication authentication = authenticationManager.authenticate(
-            new UsernamePasswordAuthenticationToken(
-                request.getUsername(),
-                request.getPassword()
-            )
-        );
-        String token = jwtTokenProvider.generateToken(authentication);
-        return ResponseEntity.ok(token);
+        try {
+            System.out.println("Tentative de connexion pour username: " + request.getUsername());
+            Authentication authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                    request.getUsername(),
+                    request.getPassword()
+                )
+            );
+            String token = jwtTokenProvider.generateToken(authentication);
+            System.out.println("Token généré pour username: " + request.getUsername());
+            return ResponseEntity.ok(token);
+        } catch (AuthenticationException e) {
+            System.out.println("Échec de l'authentification pour username: " + request.getUsername() + ", erreur: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body("Échec de l'authentification: " + e.getMessage());
+        }
     }
 }
 
