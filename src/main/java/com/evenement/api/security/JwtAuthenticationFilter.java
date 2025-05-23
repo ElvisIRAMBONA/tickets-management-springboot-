@@ -1,48 +1,58 @@
 package com.evenement.api.security;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
-import org.springframework.stereotype.Component;
-import org.springframework.web.filter.OncePerRequestFilter;
-import java.util.Collections;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
+
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider) {
+        this.jwtTokenProvider = jwtTokenProvider;
+        this.userDetailsService = userDetailsService;
+    }
+    
+    
+
+    @Autowired
+    private UserDetailsService userDetailsService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        String jwt = getJwtFromRequest(request);
-        if (jwt != null) {
-            logger.debug("Token JWT reçu: " + jwt);
-            try {
-                if (jwtTokenProvider.validateToken(jwt)) {
-                    String username = jwtTokenProvider.getUsernameFromJWT(jwt);
-                    logger.debug("Token valide, username: " + username);
-                    UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                            username, null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER")));
-                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                    SecurityContextHolder.getContext().setAuthentication(authentication);
-                    logger.debug("Authentification configurée pour: " + username + ", authorities: ROLE_USER");
-                } else {
-                    logger.warn("Token invalide");
-                }
-            } catch (Exception e) {
-                logger.error("Erreur lors de la validation du token: " + e.getMessage(), e);
+        try {
+            String jwt = getJwtFromRequest(request);
+            if (jwt != null && jwtTokenProvider.validateToken(jwt)) {
+                String username = jwtTokenProvider.getUsernameFromJWT(jwt);
+                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities());
+                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+                logger.debug("Authentication définie pour l'utilisateur : {}", username);
+            } else {
+                logger.warn("Token JWT absent ou invalide");
             }
-        } else {
-            logger.debug("Aucun token JWT reçu");
+        } catch (Exception e) {
+            logger.error("Erreur lors de l'authentification JWT : {}", e.getMessage());
         }
         filterChain.doFilter(request, response);
     }
@@ -50,10 +60,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private String getJwtFromRequest(HttpServletRequest request) {
         String bearerToken = request.getHeader("Authorization");
         if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
-            logger.debug("En-tête Authorization trouvé: " + bearerToken);
-            return bearerToken.substring(7);
+            String token = bearerToken.substring(7);
+            logger.debug("Token JWT reçu : {}", token);
+            return token;
         }
-        logger.debug("Aucun en-tête Authorization ou format incorrect: " + bearerToken);
+        logger.debug("En-tête Authorization absent ou mal formé");
         return null;
     }
 }
